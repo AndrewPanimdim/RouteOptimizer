@@ -146,9 +146,10 @@
   <h3 id="nav-header">Navigating</h3>
   <div id="nav-stop-label"></div>
   <div id="nav-instruction">Proceed to destination</div>
+  <div id="nav-dist" style="font-family:'Space Mono',monospace;font-size:11px;color:var(--success);margin-bottom:12px;">Locating…</div>
   <div id="nav-controls">
     <button class="nav-btn" id="nav-prev">← Prev</button>
-    <button class="nav-btn" id="nav-next">Arrived → Next</button>
+    <button class="nav-btn" id="nav-next">✓ Arrived</button>
   </div>
 </div>
 <div id="toast"></div>
@@ -158,7 +159,10 @@ const BACKEND="http://127.0.0.1:5000";
 const MAX_STOPS=9;
 const DEFAULT_CENTER=[14.5547,121.0243];
 const STOP_COLORS=['#AED6F1','#85C1E9','#5DADE2','#3498DB','#2E86C1','#2874A6','#1F618D','#1A5276','#154360'];
+const ROUTE_COLOR='#1A5276';      // solid dark blue for all polylines
+const GEOFENCE_RADIUS_M=80;       // auto-advance when rider is within 80m of next stop
 let groundZero=null,gzMarker=null,stops=[],searchTimers={},routePolylines=[],currentSegment=0,routeData=null;
+let gpsWatchId=null,riderMarker=null,riderAccuracyCircle=null,isNavigating=false;
 
 const map=L.map('map',{center:DEFAULT_CENTER,zoom:14});
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
@@ -216,7 +220,7 @@ function removeStop(index){
 }
 
 function clearAll(){stops.forEach(s=>s.marker.remove());stops=[];clearPolylines();renderStops();updateStats();document.getElementById('nav-panel').style.display='none';updateComputeBtn();}
-function clearPolylines(){routePolylines.forEach(p=>p.remove());routePolylines=[];routeData=null;}
+function clearPolylines(){routePolylines.forEach(p=>p.remove());routePolylines=[];routeData=null;stopGPS();}
 function updateComputeBtn(){document.getElementById('compute-btn').disabled=!groundZero||stops.length<1;}
 
 function renderStops(){
@@ -279,40 +283,122 @@ document.getElementById('compute-btn').addEventListener('click',async()=>{
       body:JSON.stringify({ground_zero:{name:groundZero.name,lat:groundZero.lat,lng:groundZero.lng},stops:stops.map(s=>({name:s.name,lat:s.lat,lng:s.lng}))})});
     routeData=await res.json();
     if(routeData.error){showToast(routeData.error,'error');return;}
-    routeData.segments.forEach((seg,i)=>{const c=STOP_COLORS[i]||STOP_COLORS[8];routePolylines.push(L.polyline(seg.polyline,{color:c,weight:5,opacity:.85}).addTo(map));});
+    routeData.segments.forEach((seg)=>{routePolylines.push(L.polyline(seg.polyline,{color:ROUTE_COLOR,weight:5,opacity:.85}).addTo(map));});
     stops=routeData.ordered_stops.map((s,i)=>{
       const old=stops.find(o=>o.name===s.name);
       if(old){old.marker.remove();old.marker=createStopMarker(s.lat,s.lng,i);old.marker.addTo(map).bindPopup(`<b>${i+1}. ${s.name}</b>`);}
       return{name:s.name,lat:s.lat,lng:s.lng,marker:old?old.marker:createStopMarker(s.lat,s.lng,i)};
     });
     renderStops();updateStats();fitMap();
-    showToast('Route optimized from ground zero!','success');
+    showToast('Route optimized! Starting live navigation…','success');
     currentSegment=0;showNavStep();
     document.getElementById('nav-panel').style.display='block';
+    stopGPS();   // stop any previous watch
+    startGPS();  // begin live tracking
   }catch(e){showToast('Cannot reach backend. Is main.py running?','error');console.error(e);}
   finally{btn.textContent='Compute Optimal Route →';updateComputeBtn();}
 });
 
+// ── GPS LIVE TRACKING ─────────────────────────
+function startGPS(){
+  if(!navigator.geolocation){showToast('Geolocation not supported on this device','error');return;}
+  isNavigating=true;
+  gpsWatchId=navigator.geolocation.watchPosition(onGPSUpdate,onGPSError,{
+    enableHighAccuracy:true,
+    maximumAge:3000,      // accept cached position up to 3s old
+    timeout:10000
+  });
+}
+
+function stopGPS(){
+  if(gpsWatchId!==null){navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null;}
+  if(riderMarker){riderMarker.remove();riderMarker=null;}
+  if(riderAccuracyCircle){riderAccuracyCircle.remove();riderAccuracyCircle=null;}
+  isNavigating=false;
+}
+
+function onGPSUpdate(pos){
+  const lat=pos.coords.latitude,lng=pos.coords.longitude,acc=pos.coords.accuracy;
+
+  // Draw/update live rider dot
+  if(!riderMarker){
+    riderMarker=L.circleMarker([lat,lng],{radius:8,fillColor:'#22c55e',fillOpacity:1,color:'white',weight:2}).addTo(map);
+    riderAccuracyCircle=L.circle([lat,lng],{radius:acc,color:'#22c55e',fillColor:'#22c55e',fillOpacity:.1,weight:1}).addTo(map);
+  } else {
+    riderMarker.setLatLng([lat,lng]);
+    riderAccuracyCircle.setLatLng([lat,lng]).setRadius(acc);
+  }
+
+  // Keep map centered on rider during navigation
+  map.panTo([lat,lng],{animate:true,duration:0.5});
+
+  // ── GEOFENCE CHECK ──
+  // Get the destination of the current segment
+  if(!routeData||currentSegment>=routeData.segments.length)return;
+  const dest=routeData.ordered_stops[currentSegment]; // current target stop
+  const distToStop=haversine(lat,lng,dest.lat,dest.lng)*1000; // convert km→m
+
+  // Update distance display in nav HUD
+  document.getElementById('nav-dist').textContent=distToStop<1000
+    ?`${Math.round(distToStop)}m away`
+    :`${(distToStop/1000).toFixed(1)}km away`;
+
+  // Auto-advance if within geofence radius
+  if(distToStop<=GEOFENCE_RADIUS_M){
+    showToast(`📍 Arrived at ${dest.name}!`,'success');
+    advanceSegment();
+  }
+}
+
+function onGPSError(err){
+  showToast('GPS signal lost. Use button to advance manually.','error');
+}
+
+function advanceSegment(){
+  if(!routeData)return;
+  if(currentSegment>=routeData.segments.length-1){
+    stopGPS();
+    document.getElementById('nav-panel').style.display='none';
+    showToast('🏁 All deliveries complete!','success');
+    return;
+  }
+  currentSegment++;
+  showNavStep();
+}
+
+// ── NAV HUD ───────────────────────────────────
 function showNavStep(){
   if(!routeData)return;
   const segs=routeData.segments,seg=segs[currentSegment];
   const isLast=currentSegment===segs.length-1;
+
   document.getElementById('nav-header').textContent=currentSegment===0?'🚀 Starting Route':`Segment ${currentSegment+1} of ${segs.length}`;
   document.getElementById('nav-stop-label').textContent=`${seg.from} → ${seg.to}`;
-  const step=seg.steps[0];
-  document.getElementById('nav-instruction').textContent=step&&step.road?`${step.instruction} on ${step.road}`:'Proceed to destination';
+
+  // Show first meaningful turn instruction
+  const step=seg.steps.find(s=>s.road)||seg.steps[0];
+  document.getElementById('nav-instruction').textContent=step&&step.road
+    ?`${step.instruction} on ${step.road}`
+    :'Proceed to destination';
+
+  document.getElementById('nav-dist').textContent='Locating…';
   document.getElementById('nav-prev').disabled=currentSegment===0;
-  document.getElementById('nav-next').textContent=isLast?'🏁 Done':'Arrived → Next';
-  routePolylines.forEach((p,i)=>p.setStyle({opacity:i===currentSegment?1:.25,weight:i===currentSegment?7:4}));
+  document.getElementById('nav-next').textContent=isLast?'🏁 Done':'✓ Arrived';
+
+  // Highlight active segment — others dimmed
+  routePolylines.forEach((p,i)=>p.setStyle({
+    opacity:i===currentSegment?1:.2,
+    weight:i===currentSegment?7:4
+  }));
   map.fitBounds(routePolylines[currentSegment].getBounds(),{padding:[80,80]});
 }
 
 document.getElementById('nav-next').addEventListener('click',()=>{
-  if(!routeData)return;
-  if(currentSegment>=routeData.segments.length-1){document.getElementById('nav-panel').style.display='none';showToast('🏁 All deliveries complete!','success');return;}
-  currentSegment++;showNavStep();
+  advanceSegment(); // manual fallback button
 });
-document.getElementById('nav-prev').addEventListener('click',()=>{if(currentSegment>0){currentSegment--;showNavStep();}});
+document.getElementById('nav-prev').addEventListener('click',()=>{
+  if(currentSegment>0){currentSegment--;showNavStep();}
+});
 </script>
 </body>
 </html>
