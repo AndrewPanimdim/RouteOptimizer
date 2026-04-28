@@ -2,108 +2,489 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
+  <!--
+    viewport: tells the phone browser to use the actual screen width.
+    Without this, phones render at ~980px desktop width and shrink everything.
+  -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>RouteRider</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap"/>
   <style>
+    /* ─────────────────────────────────────────────────────────────────────────
+       DESIGN TOKENS
+       CSS variables defined once here. Every color, used by name throughout.
+       Changing --accent here changes every blue button/border in the whole app.
+    ───────────────────────────────────────────────────────────────────────── */
     :root {
-      --bg:#0d0f14; --panel:#13161e; --border:#1e2330;
-      --accent:#3b82f6; --accent-light:#60a5fa;
-      --text:#e2e8f0; --muted:#64748b;
-      --danger:#ef4444; --success:#22c55e;
-      --gz:#f59e0b;
+      --bg:           #0d0f14;   /* darkest — page background */
+      --panel:        #13161e;   /* sidebar, cards, overlays */
+      --border:       #1e2330;   /* subtle dividers */
+      --accent:       #3b82f6;   /* primary blue — buttons, highlights */
+      --accent-light: #60a5fa;   /* hover state for blue */
+      --text:         #e2e8f0;   /* main readable text */
+      --muted:        #64748b;   /* secondary/label text */
+      --danger:       #ef4444;   /* red — remove, error */
+      --success:      #22c55e;   /* green — arrival, GPS dot */
+      --gz:           #f59e0b;   /* amber — ground zero only */
     }
-    *{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden;}
-    #sidebar{width:360px;min-width:360px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:10;overflow:hidden;}
-    #sidebar-header{padding:20px 20px 16px;border-bottom:1px solid var(--border);}
-    .logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;}
-    .logo span{color:var(--accent);}
-    .tagline{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:1px;}
-    #gz-section{padding:16px 20px;border-bottom:1px solid var(--border);background:rgba(245,158,11,.04);}
-    .section-label{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;}
-    .gz-label{color:var(--gz);}
-    .search-wrapper{position:relative;}
-    .search-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 40px 10px 12px;color:var(--text);font-family:'Syne',sans-serif;font-size:13px;outline:none;transition:border-color .2s;}
-    .search-input::placeholder{color:var(--muted);}
-    #gz-input:focus{border-color:var(--gz);}
-    #stop-input:focus{border-color:var(--accent);}
-    .search-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;border-radius:5px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-    #gz-search-btn{background:var(--gz);}
-    #stop-search-btn{background:var(--accent);}
-    #stop-search-btn:hover{background:var(--accent-light);}
-    #gz-set-card{display:none;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--gz);border-radius:8px;padding:10px 12px;margin-top:8px;}
-    .gz-badge{width:26px;height:26px;border-radius:50%;background:var(--gz);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;}
-    .gz-info{flex:1;min-width:0;}
-    .gz-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .gz-coords{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px;}
-    #gz-clear-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:2px 4px;border-radius:4px;}
-    #gz-clear-btn:hover{color:var(--danger);}
-    .dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;z-index:9999;max-height:220px;overflow-y:auto;display:none;}
-    .dropdown-item{padding:10px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);}
-    .dropdown-item:last-child{border-bottom:none;}
-    .dropdown-item:hover{background:var(--bg);}
-    .place-name{color:var(--text);font-weight:600;}
-    .place-addr{color:var(--muted);font-size:11px;}
-    #search-section{padding:16px 20px;border-bottom:1px solid var(--border);}
-    #stops-section{flex:1;overflow-y:auto;padding:16px 20px;}
-    #stops-section::-webkit-scrollbar{width:4px;}
-    #stops-section::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
-    .stops-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
-    #clear-all-btn{font-family:'Space Mono',monospace;font-size:10px;color:var(--danger);background:none;border:1px solid var(--danger);border-radius:4px;padding:3px 8px;cursor:pointer;opacity:.7;}
-    #clear-all-btn:hover{opacity:1;}
-    #stops-list{display:flex;flex-direction:column;gap:8px;}
-    .stop-item{display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;animation:slideIn .2s ease;}
-    @keyframes slideIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}
-    .stop-badge{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;flex-shrink:0;color:white;}
-    .stop-info{flex:1;min-width:0;}
-    .stop-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .stop-coords{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px;}
-    .stop-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:2px 4px;border-radius:4px;}
-    .stop-remove:hover{color:var(--danger);background:rgba(239,68,68,.1);}
-    .empty-state{text-align:center;padding:32px 16px;color:var(--muted);}
-    .empty-state .icon{font-size:32px;margin-bottom:8px;}
-    .empty-state p{font-size:12px;line-height:1.6;}
-    #sidebar-footer{padding:16px 20px;border-top:1px solid var(--border);}
-    #stats-bar{display:flex;gap:12px;margin-bottom:12px;}
-    .stat{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:center;}
-    .stat-value{font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--accent);}
-    .stat-label{font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;}
-    #compute-btn{width:100%;padding:13px;background:var(--accent);color:white;border:none;border-radius:8px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background .2s,opacity .2s;}
-    #compute-btn:disabled{opacity:.4;cursor:not-allowed;}
-    #compute-btn:not(:disabled):hover{background:var(--accent-light);}
-    #nav-panel{display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 20px;z-index:9999;min-width:340px;max-width:500px;box-shadow:0 8px 32px rgba(0,0,0,.5);}
-    #nav-panel h3{font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px;text-transform:uppercase;}
-    #nav-stop-label{font-size:13px;font-weight:700;color:var(--accent);margin-bottom:4px;}
-    #nav-instruction{font-size:15px;font-weight:600;margin-bottom:12px;line-height:1.4;}
-    #nav-controls{display:flex;gap:8px;}
-    .nav-btn{flex:1;padding:10px;border:none;border-radius:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer;}
-    #nav-prev{background:var(--border);color:var(--text);}
-    #nav-next{background:var(--accent);color:white;}
-    #nav-next:hover{background:var(--accent-light);}
-    #map{flex:1;z-index:1;}
-    #toast{position:fixed;bottom:24px;right:24px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-size:13px;z-index:99999;opacity:0;transform:translateY(8px);transition:opacity .25s,transform .25s;pointer-events:none;max-width:280px;}
-    #toast.show{opacity:1;transform:translateY(0);}
-    #toast.error{border-color:var(--danger);color:var(--danger);}
-    #toast.success{border-color:var(--success);color:var(--success);}
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       RESET
+       box-sizing:border-box means width includes padding — no surprise overflow.
+    ───────────────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       ROOT LAYOUT
+       Desktop: flex row → [SIDEBAR 360px | MAP fills rest]
+       Mobile:  map takes full screen, sidebar slides up as a bottom sheet
+    ───────────────────────────────────────────────────────────────────────── */
+    body {
+      font-family: 'Syne', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      overflow: hidden; /* the map + sidebar each scroll independently */
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       SIDEBAR
+       On desktop: fixed 360px left column.
+       On mobile (media query below): becomes a bottom sheet.
+       flex-direction:column stacks its children top-to-bottom.
+    ───────────────────────────────────────────────────────────────────────── */
+    #sidebar {
+      width: 360px;
+      min-width: 360px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      overflow: hidden;
+      transition: transform 0.35s cubic-bezier(.4,0,.2,1); /* smooth slide for mobile */
+    }
+
+    /* ── HEADER ── */
+    #sidebar-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0; /* never shrink — always visible */
+    }
+    .logo { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+    .logo span { color: var(--accent); }
+    .tagline { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 1px; }
+
+    /* Drag handle — decorative pill shown at top of mobile bottom sheet */
+    #drag-handle {
+      display: none; /* shown only on mobile */
+      width: 36px; height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin: 0 auto 4px;
+    }
+
+    /* ── GROUND ZERO SECTION ──
+       Amber-tinted input at the top. Rider sets starting point here ONCE per job.
+       After setting: search input hides, confirmation card appears.
+    ── */
+    #gz-section {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(245,158,11,.04);
+      flex-shrink: 0;
+    }
+    .section-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1.5px;
+      margin-bottom: 8px;
+    }
+    .gz-label { color: var(--gz); }
+
+    /* ── SEARCH INPUTS ──
+       position:relative on wrapper so the dropdown and button can be
+       absolutely positioned relative to it.
+    ── */
+    .search-wrapper { position: relative; }
+    .search-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 40px 10px 12px; /* right padding reserves space for the button */
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .search-input::placeholder { color: var(--muted); }
+    #gz-input:focus   { border-color: var(--gz); }
+    #stop-input:focus { border-color: var(--accent); }
+
+    /* Button sits inside the right edge of the input field */
+    .search-btn {
+      position: absolute; right: 8px; top: 50%;
+      transform: translateY(-50%);
+      border: none; border-radius: 5px;
+      width: 28px; height: 28px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity .15s;
+    }
+    .search-btn:hover { opacity: .85; }
+    #gz-search-btn   { background: var(--gz); }
+    #stop-search-btn { background: var(--accent); }
+
+    /* Confirmation card shown after GZ is set (replaces the search input) */
+    #gz-set-card {
+      display: none; /* JS sets to 'flex' when GZ is confirmed */
+      align-items: center; gap: 10px;
+      background: var(--bg);
+      border: 1px solid var(--gz);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-top: 8px;
+    }
+    .gz-badge { width: 26px; height: 26px; border-radius: 50%; background: var(--gz); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+    .gz-info  { flex: 1; min-width: 0; } /* min-width:0 needed for ellipsis inside flex */
+    .gz-name  { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gz-coords { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 1px; }
+    #gz-clear-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 2px 4px; border-radius: 4px; flex-shrink: 0; }
+    #gz-clear-btn:hover { color: var(--danger); }
+
+    /* ── AUTOCOMPLETE DROPDOWN ──
+       Appears below the search input. z-index:9999 floats it above everything.
+    ── */
+    .dropdown {
+      position: absolute;
+      top: calc(100% + 4px); left: 0; right: 0;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      z-index: 9999;
+      max-height: 200px; overflow-y: auto;
+      display: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    }
+    .dropdown-item { padding: 10px 12px; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background .1s; }
+    .dropdown-item:last-child { border-bottom: none; }
+    .dropdown-item:hover { background: var(--bg); }
+    .place-name { color: var(--text); font-weight: 600; line-height: 1.3; }
+    .place-addr { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    /* ── STOP SEARCH SECTION ── */
+    #search-section { padding: 14px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+
+    /* ── STOPS LIST ──
+       flex:1 — this section grows to fill all remaining vertical space.
+       overflow-y:auto — scrollable when there are many stops.
+    ── */
+    #stops-section { flex: 1; overflow-y: auto; padding: 14px 20px; min-height: 0; }
+    #stops-section::-webkit-scrollbar { width: 3px; }
+    #stops-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .stops-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    #clear-all-btn { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--danger); background: none; border: 1px solid var(--danger); border-radius: 4px; padding: 3px 8px; cursor: pointer; opacity: .6; transition: opacity .15s; }
+    #clear-all-btn:hover { opacity: 1; }
+
+    #stops-list { display: flex; flex-direction: column; gap: 7px; }
+
+    .stop-item {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      animation: slideIn .2s ease;
+    }
+    @keyframes slideIn { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:translateY(0); } }
+    .stop-badge {
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700;
+      flex-shrink: 0; color: white; background: #1A5276;
+    }
+    .stop-info { flex: 1; min-width: 0; }
+    .stop-name  { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stop-coords { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    /*
+      ETA badge — shown on each stop card after route is computed.
+      Sits between stop-info and the remove button.
+      Uses accent color with a subtle background so it reads as "info, not action".
+    */
+    .stop-eta {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      color: var(--accent);
+      background: rgba(59,130,246,.1);
+      border: 1px solid rgba(59,130,246,.2);
+      border-radius: 5px;
+      padding: 3px 7px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    /* When a stop is the "current" one being navigated — highlight its card */
+    .stop-item.active-stop {
+      border-color: var(--accent);
+      background: rgba(59,130,246,.06);
+    }
+    .stop-item.active-stop .stop-badge {
+      background: var(--accent); /* brighter blue badge for active stop */
+    }
+    /* Completed stop — dimmed to show it's done */
+    .stop-item.done-stop {
+      opacity: 0.45;
+    }
+    .stop-item.done-stop .stop-eta {
+      color: var(--success);
+      background: rgba(34,197,94,.1);
+      border-color: rgba(34,197,94,.2);
+    }
+
+    .stop-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 2px 5px; border-radius: 4px; flex-shrink: 0; transition: color .15s, background .15s; }
+    .stop-remove:hover { color: var(--danger); background: rgba(239,68,68,.1); }
+
+    .empty-state { text-align: center; padding: 28px 16px; color: var(--muted); }
+    .empty-state .icon { font-size: 28px; margin-bottom: 8px; }
+    .empty-state p { font-size: 12px; line-height: 1.6; }
+
+    /* ── FOOTER: STATS + COMPUTE ── */
+    #sidebar-footer { padding: 14px 20px; border-top: 1px solid var(--border); flex-shrink: 0; }
+    #stats-bar { display: flex; gap: 10px; margin-bottom: 10px; }
+    .stat { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 6px; text-align: center; }
+    .stat-value { font-family: 'Space Mono', monospace; font-size: 17px; font-weight: 700; color: var(--accent); }
+    .stat-label { font-size: 9px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .5px; }
+
+    #compute-btn {
+      width: 100%; padding: 13px;
+      background: var(--accent); color: white;
+      border: none; border-radius: 8px;
+      font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: background .2s, opacity .2s;
+      position: relative; overflow: hidden; /* for loading shimmer */
+    }
+    #compute-btn:disabled { opacity: .4; cursor: not-allowed; }
+    #compute-btn:not(:disabled):hover { background: var(--accent-light); }
+    /* Loading state: pulsing opacity */
+    #compute-btn.loading { animation: pulse .8s ease-in-out infinite alternate; }
+    @keyframes pulse { from { opacity: .6; } to { opacity: 1; } }
+
+    /* ── MAP ──
+       flex:1 → takes all width after the sidebar on desktop.
+       On mobile: position:fixed, fills entire screen (sidebar floats on top).
+    ── */
+    #map { flex: 1; z-index: 1; }
+
+    /* ── NAV HUD ──
+       Floating panel over the map during active navigation.
+       Centered horizontally via left:50% + translateX(-50%).
+    ── */
+    #nav-panel {
+      display: none; /* shown by JS after route compute */
+      position: fixed;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      z-index: 9000;
+      width: min(460px, calc(100vw - 48px)); /* 460px max, 24px margin each side on mobile */
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    }
+    #nav-header     { font-size: 10px; color: var(--muted); font-family: 'Space Mono', monospace; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+    #nav-stop-label { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 3px; }
+    #nav-instruction { font-size: 15px; font-weight: 600; margin-bottom: 5px; line-height: 1.4; }
+    /* ETA line in nav HUD — shows "ETA: 3:42 PM" for the current destination */
+    #nav-eta { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--accent); margin-bottom: 4px; }
+    #nav-dist { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--success); margin-bottom: 12px; min-height: 16px; }
+    #nav-controls { display: flex; gap: 8px; }
+    .nav-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; cursor: pointer; transition: opacity .15s; }
+    .nav-btn:hover { opacity: .85; }
+    #nav-prev { background: var(--border); color: var(--text); }
+    #nav-next { background: var(--accent); color: white; }
+
+    /* ── COMPLETION OVERLAY ──
+       Full-screen dark backdrop with a summary card.
+       Hidden by default; display:flex when .show is added by JS.
+    ── */
+    #reset-overlay {
+      display: none;
+      position: fixed; inset: 0; /* top/right/bottom/left all = 0 */
+      background: rgba(13,15,20,.93);
+      z-index: 99999;
+      align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    #reset-overlay.show { display: flex; }
+    #reset-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 32px 28px;
+      text-align: center;
+      width: min(340px, 100%);
+      box-shadow: 0 16px 48px rgba(0,0,0,.6);
+      animation: popIn .3s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes popIn { from { opacity:0; transform:scale(.9); } to { opacity:1; transform:scale(1); } }
+    #reset-card .done-icon { font-size: 52px; margin-bottom: 14px; }
+    #reset-card h2 { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+    #reset-card p  { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; }
+    #reset-stats { display: flex; gap: 10px; margin-bottom: 24px; }
+    #new-job-btn {
+      width: 100%; padding: 14px;
+      background: var(--accent); color: white;
+      border: none; border-radius: 10px;
+      font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700;
+      cursor: pointer; transition: background .2s;
+    }
+    #new-job-btn:hover { background: var(--accent-light); }
+
+    /* ── MOBILE SHEET TOGGLE ──
+       Floating pill button over the map. Hidden on desktop.
+    ── */
+    #sheet-toggle {
+      display: none; /* shown only on mobile via media query */
+      position: fixed;
+      bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      z-index: 9500;
+      background: var(--accent); color: white;
+      border: none; border-radius: 24px;
+      padding: 12px 22px;
+      font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(59,130,246,.45);
+      gap: 8px; align-items: center;
+      transition: bottom .35s cubic-bezier(.4,0,.2,1);
+      white-space: nowrap;
+    }
+
+    /* ── TOAST ── */
+    #toast {
+      position: fixed; bottom: 20px; right: 20px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 11px 15px;
+      font-size: 13px; z-index: 99998;
+      opacity: 0; transform: translateY(6px);
+      transition: opacity .25s, transform .25s;
+      pointer-events: none;
+      max-width: 280px; line-height: 1.4;
+    }
+    #toast.show   { opacity: 1; transform: translateY(0); }
+    #toast.error  { border-color: var(--danger); color: var(--danger); }
+    #toast.success{ border-color: var(--success); color: var(--success); }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+       MOBILE RESPONSIVE  (≤640px — phones)
+       
+       Layout switch:
+         Desktop: [SIDEBAR | MAP] side-by-side
+         Mobile:  MAP fills full screen, SIDEBAR is a bottom sheet overlay
+       
+       This is how Grab, Waze, and Google Maps work on mobile.
+    ───────────────────────────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      body { flex-direction: column; }
+
+      /* Map covers the entire screen */
+      #map {
+        position: fixed; inset: 0;
+        z-index: 1;
+      }
+
+      /* Sidebar becomes a bottom sheet:
+         - Fixed to bottom, full width
+         - max-height:82vh so map is still visible above it
+         - transform:translateY(100%) hides it below the screen
+         - .open class slides it up into view
+         - top border-radius gives the "sheet" appearance */
+      #sidebar {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        width: 100%; min-width: unset;
+        max-height: 82vh;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        border-radius: 20px 20px 0 0;
+        z-index: 9200;
+        transform: translateY(100%); /* hidden below screen */
+        overflow-y: auto;
+      }
+      #sidebar.open { transform: translateY(0); } /* slides up */
+
+      /* Show drag handle inside the sheet */
+      #drag-handle { display: block; margin-top: 10px; }
+
+      /* Show the floating toggle button */
+      #sheet-toggle { display: flex; }
+
+      /* When sheet is open: move toggle button to just above the sheet */
+      #sidebar.open ~ #sheet-toggle { bottom: calc(82vh + 10px); }
+
+      /* Nav HUD: full-width, sits above the toggle button area */
+      #nav-panel {
+        bottom: 88px;
+        left: 12px; right: 12px;
+        transform: none; width: auto; min-width: unset;
+      }
+
+      /* When navigating and sheet is open, nav HUD moves above sheet */
+      #sidebar.open ~ #map ~ #nav-panel,
+      #sidebar.open ~ #nav-panel { bottom: calc(82vh + 10px); }
+
+      /* Toast: full-width with margin */
+      #toast { bottom: 88px; right: 12px; left: 12px; max-width: unset; }
+    }
   </style>
 </head>
 <body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     SIDEBAR
+     Desktop: left panel. Mobile: bottom sheet.
+═══════════════════════════════════════════════════════════════════════════ -->
 <div id="sidebar">
+
+  <!-- Drag handle (mobile only — purely visual) -->
+  <div id="drag-handle"></div>
+
   <div id="sidebar-header">
-    <div class="logo">Route<span>Rider</span></div>
-    <div class="tagline">Multi-stop delivery optimizer · Metro Manila</div>
+    <div>
+      <div class="logo">Route<span>Rider</span></div>
+      <div class="tagline">Multi-stop optimizer · Metro Manila</div>
+    </div>
   </div>
+
+  <!-- ── GROUND ZERO ──────────────────────────────────────────────────────
+       Rider's starting point. Fixed for the entire job — not a delivery stop.
+       Flow: search input → pick result → confirmation card appears.
+  ── -->
   <div id="gz-section">
     <div class="section-label gz-label">⊙ Ground Zero — Start Point</div>
+
+    <!-- Search input (hidden after GZ is set) -->
     <div class="search-wrapper">
-      <input type="text" id="gz-input" class="search-input" placeholder="Where are you starting from?" autocomplete="off"/>
+      <input type="text" id="gz-input" class="search-input"
+        placeholder="Where are you starting from?" autocomplete="off"/>
       <button class="search-btn" id="gz-search-btn" title="Set start point">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="11" cy="11" r="6"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
       </button>
       <div class="dropdown" id="gz-dropdown"></div>
     </div>
+
+    <!-- Confirmation card (shown after GZ is set) -->
     <div id="gz-set-card">
       <div class="gz-badge">⊙</div>
       <div class="gz-info">
@@ -113,291 +494,1016 @@
       <button id="gz-clear-btn" title="Change start point">✕</button>
     </div>
   </div>
+
+  <!-- ── DELIVERY STOP SEARCH ────────────────────────────────────────────
+       Each result picked here adds one stop to the list below.
+  ── -->
   <div id="search-section">
     <div class="section-label">Add Delivery Stops</div>
     <div class="search-wrapper">
-      <input type="text" id="stop-input" class="search-input" placeholder="Search place or address…" autocomplete="off"/>
+      <input type="text" id="stop-input" class="search-input"
+        placeholder="Search place or address…" autocomplete="off"/>
       <button class="search-btn" id="stop-search-btn" title="Search">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="11" cy="11" r="6"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
       </button>
       <div class="dropdown" id="stop-dropdown"></div>
     </div>
   </div>
+
+  <!-- ── STOPS LIST ──────────────────────────────────────────────────────
+       Rendered dynamically by JS. Shows numbered stops with remove buttons.
+       After route compute, reordered to match the optimized sequence.
+  ── -->
   <div id="stops-section">
     <div class="stops-header">
       <div class="section-label" style="margin-bottom:0">Delivery Stops</div>
       <button id="clear-all-btn">Clear All</button>
     </div>
     <div id="stops-list">
-      <div class="empty-state"><div class="icon">📦</div><p>Set your ground zero first,<br/>then add delivery stops.</p></div>
+      <div class="empty-state">
+        <div class="icon">📦</div>
+        <p>Set your ground zero first,<br/>then add delivery stops.</p>
+      </div>
     </div>
   </div>
+
+  <!-- ── STATS + COMPUTE BUTTON ──────────────────────────────────────────
+       Stats show rough estimates before compute, real OSRM data after.
+       Button disabled until ground zero + ≥1 stop are set.
+  ── -->
   <div id="sidebar-footer">
     <div id="stats-bar">
-      <div class="stat"><div class="stat-value" id="stat-stops">0</div><div class="stat-label">Stops</div></div>
-      <div class="stat"><div class="stat-value" id="stat-dist">—</div><div class="stat-label">km</div></div>
-      <div class="stat"><div class="stat-value" id="stat-time">—</div><div class="stat-label">min</div></div>
+      <div class="stat">
+        <div class="stat-value" id="stat-stops">0</div>
+        <div class="stat-label">Stops</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-dist">—</div>
+        <div class="stat-label">km</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="stat-time">—</div>
+        <div class="stat-label">min</div>
+      </div>
     </div>
     <button id="compute-btn" disabled>Compute Optimal Route →</button>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MAP  —  Leaflet renders here. flex:1 on desktop, fixed full-screen on mobile.
+═══════════════════════════════════════════════════════════════════════════ -->
 <div id="map"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MOBILE SHEET TOGGLE  —  Only visible on phones. Opens/closes the sidebar.
+═══════════════════════════════════════════════════════════════════════════ -->
+<button id="sheet-toggle">
+  <span id="toggle-icon">☰</span>
+  <span id="toggle-label">Add Stops</span>
+</button>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     NAVIGATION HUD  —  Floats over the map during active navigation.
+     Shows current turn instruction + live GPS distance.
+     Manual "✓ Arrived" button = fallback when GPS geofence doesn't fire.
+═══════════════════════════════════════════════════════════════════════════ -->
 <div id="nav-panel">
-  <h3 id="nav-header">Navigating</h3>
+  <div id="nav-header">Navigating</div>
   <div id="nav-stop-label"></div>
   <div id="nav-instruction">Proceed to destination</div>
-  <div id="nav-dist" style="font-family:'Space Mono',monospace;font-size:11px;color:var(--success);margin-bottom:12px;">Locating…</div>
+  <div id="nav-eta"></div>   <!-- ETA for current stop, e.g. "ETA: 3:42 PM" -->
+  <div id="nav-dist">Locating…</div>
   <div id="nav-controls">
-    <button class="nav-btn" id="nav-prev">← Prev</button>
+    <button class="nav-btn" id="nav-prev">← Back</button>
     <button class="nav-btn" id="nav-next">✓ Arrived</button>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     COMPLETION OVERLAY  —  Shown when last stop is reached.
+     Displays session summary + "Start New Job" button that does a full reset.
+═══════════════════════════════════════════════════════════════════════════ -->
+<div id="reset-overlay">
+  <div id="reset-card">
+    <div class="done-icon">🏁</div>
+    <h2>Job Complete!</h2>
+    <p>All deliveries done.<br/>Here's your session summary:</p>
+    <div id="reset-stats">
+      <div class="stat">
+        <div class="stat-value" id="done-stops">—</div>
+        <div class="stat-label">Stops</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="done-dist">—</div>
+        <div class="stat-label">km</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="done-time">—</div>
+        <div class="stat-label">min</div>
+      </div>
+    </div>
+    <button id="new-job-btn">+ Start New Job</button>
+  </div>
+</div>
+
+<!-- Toast notification -->
 <div id="toast"></div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const BACKEND="http://127.0.0.1:5000";
-const MAX_STOPS=9;
-const DEFAULT_CENTER=[14.5547,121.0243];
-const STOP_COLORS=['#AED6F1','#85C1E9','#5DADE2','#3498DB','#2E86C1','#2874A6','#1F618D','#1A5276','#154360'];
-const ROUTE_COLOR='#1A5276';      // solid dark blue for all polylines
-const GEOFENCE_RADIUS_M=80;       // auto-advance when rider is within 80m of next stop
-let groundZero=null,gzMarker=null,stops=[],searchTimers={},routePolylines=[],currentSegment=0,routeData=null;
-let gpsWatchId=null,riderMarker=null,riderAccuracyCircle=null,isNavigating=false;
+// =============================================================================
+// CONSTANTS  —  Never change at runtime. Edit here to tune behaviour.
+// =============================================================================
 
-const map=L.map('map',{center:DEFAULT_CENTER,zoom:14});
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
-navigator.geolocation.getCurrentPosition(p=>map.setView([p.coords.latitude,p.coords.longitude],14),()=>{});
+const BACKEND         = "http://127.0.0.1:5000"; // Python Flask server
+const MAX_STOPS       = 9;                        // cap on delivery stops
+const DEFAULT_CENTER  = [14.5547, 121.0243];      // Bangkal, Makati
+const ROUTE_COLOR     = '#1A5276';                // dark navy for all polylines
+const GEOFENCE_M      = 80;                       // metres — auto-advance threshold
+const GEOFENCE_COOLDOWN_MS = 5000;               // 5s cooldown so geofence only fires once per stop
 
-let toastTimer;
-function showToast(msg,type='info'){const t=document.getElementById('toast');t.textContent=msg;t.className=`show ${type}`;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='',3500);}
+// =============================================================================
+// STATE  —  These variables represent the app's current condition.
+//           Every user action reads or modifies these.
+// =============================================================================
 
-function createGZMarker(lat,lng){return L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<div style="width:36px;height:36px;background:#f59e0b;border-radius:50%;border:3px solid white;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.5);font-size:16px">⊙</div>`,iconSize:[36,36],iconAnchor:[18,18],popupAnchor:[0,-20]})});}
-function createStopMarker(lat,lng,i){const c=STOP_COLORS[i]||STOP_COLORS[8];return L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<div style="width:32px;height:32px;background:${c};border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(255,255,255,.4);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)"><span style="transform:rotate(45deg);font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:white">${i+1}</span></div>`,iconSize:[32,32],iconAnchor:[16,32],popupAnchor:[0,-34]})});}
+let groundZero    = null;  // { name, lat, lng } — rider start point
+let gzMarker      = null;  // Leaflet amber marker for ground zero
+let stops         = [];    // [{ name, lat, lng, marker }, ...] — delivery stops
+let searchTimers  = {};    // per-input debounce timer IDs
+let routePolylines = [];   // Leaflet polyline objects on the map
+let currentSegment = 0;    // which leg the rider is currently on
+let routeData     = null;  // full response object from Python backend
+let gpsWatchId    = null;  // ID from watchPosition() — needed to cancel it
+let riderMarker   = null;  // green dot showing live position
+let riderAccCircle = null; // translucent circle showing GPS accuracy
+let isNavigating  = false; // true while GPS watch is active
+let geofenceLocked = false;// POLISH FIX: prevents geofence from firing twice rapidly
+let stopETAs      = [];    // array of Date objects — one ETA per delivery stop
 
-function setGroundZero(name,lat,lng){
-  if(gzMarker)gzMarker.remove();
-  groundZero={name,lat,lng};
-  gzMarker=createGZMarker(lat,lng);
-  gzMarker.addTo(map).bindPopup(`<b>⊙ Start: ${name}</b>`);
-  map.setView([lat,lng],15);
-  document.getElementById('gz-input').style.display='none';
-  document.getElementById('gz-search-btn').style.display='none';
-  document.getElementById('gz-set-card').style.display='flex';
-  document.getElementById('gz-name-display').textContent=name;
-  document.getElementById('gz-coords-display').textContent=`${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-  updateComputeBtn();
-  showToast(`Ground zero set: ${name}`,'success');
-}
+// =============================================================================
+// ETA CALCULATION
+//
+// computeETAs(fromTime):
+//   Takes a starting Date object (usually "now") and walks through each segment's
+//   duration to produce an ETA Date for every stop.
+//
+//   Example with 3 stops, starting at 2:00 PM:
+//     segment[0].duration = 600s (10 min) → Stop 1 ETA = 2:10 PM
+//     segment[1].duration = 900s (15 min) → Stop 2 ETA = 2:25 PM
+//     segment[2].duration = 300s (5 min)  → Stop 3 ETA = 2:30 PM
+//
+//   This is called:
+//     1. After route is first computed (fromTime = now)
+//     2. After each stop arrival (fromTime = now, only recalculates remaining stops)
+//        This corrects for real-world delays — if rider was 10 min late to stop 1,
+//        stops 2 and 3 automatically shift forward.
+//
+// formatETA(date):
+//   Converts a Date to "2:45 PM" format.
+// =============================================================================
 
-function clearGroundZero(){
-  if(gzMarker){gzMarker.remove();gzMarker=null;}
-  groundZero=null;
-  document.getElementById('gz-input').style.display='';
-  document.getElementById('gz-search-btn').style.display='';
-  document.getElementById('gz-input').value='';
-  document.getElementById('gz-set-card').style.display='none';
-  clearPolylines();updateComputeBtn();
-}
-document.getElementById('gz-clear-btn').addEventListener('click',clearGroundZero);
+function computeETAs(fromTime = new Date()) {
+  if (!routeData) return;
 
-function addStop(name,lat,lng){
-  if(stops.length>=MAX_STOPS){showToast(`Max ${MAX_STOPS} stops`,'error');return;}
-  if(stops.find(s=>Math.abs(s.lat-lat)<0.0001&&Math.abs(s.lng-lng)<0.0001)){showToast('Already added','error');return;}
-  const i=stops.length;
-  const marker=createStopMarker(lat,lng,i);
-  marker.addTo(map).bindPopup(`<b>${i+1}. ${name}</b>`);
-  stops.push({name,lat,lng,marker});
-  renderStops();updateStats();fitMap();updateComputeBtn();
-  showToast(`Stop ${i+1}: ${name}`,'success');
-}
+  stopETAs = []; // reset
+  let cursor = fromTime.getTime(); // milliseconds — easier arithmetic than Date objects
 
-function removeStop(index){
-  stops[index].marker.remove();stops.splice(index,1);
-  stops.forEach((s,i)=>{s.marker.remove();s.marker=createStopMarker(s.lat,s.lng,i);s.marker.addTo(map).bindPopup(`<b>${i+1}. ${s.name}</b>`);});
-  clearPolylines();renderStops();updateStats();
-  if(stops.length||groundZero)fitMap();else map.setView(DEFAULT_CENTER,14);
-  updateComputeBtn();
-}
-
-function clearAll(){stops.forEach(s=>s.marker.remove());stops=[];clearPolylines();renderStops();updateStats();document.getElementById('nav-panel').style.display='none';updateComputeBtn();}
-function clearPolylines(){routePolylines.forEach(p=>p.remove());routePolylines=[];routeData=null;stopGPS();}
-function updateComputeBtn(){document.getElementById('compute-btn').disabled=!groundZero||stops.length<1;}
-
-function renderStops(){
-  const list=document.getElementById('stops-list');
-  if(!stops.length){list.innerHTML=`<div class="empty-state"><div class="icon">📦</div><p>Set your ground zero first,<br/>then add delivery stops.</p></div>`;return;}
-  list.innerHTML=stops.map((s,i)=>`<div class="stop-item"><div class="stop-badge" style="background:${STOP_COLORS[i]}">${i+1}</div><div class="stop-info"><div class="stop-name" title="${s.name}">${s.name}</div><div class="stop-coords">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div></div><button class="stop-remove" onclick="removeStop(${i})">✕</button></div>`).join('');
-}
-
-function updateStats(){
-  document.getElementById('stat-stops').textContent=stops.length;
-  if(stops.length<1||!groundZero){document.getElementById('stat-dist').textContent='—';document.getElementById('stat-time').textContent='—';return;}
-  if(routeData){document.getElementById('stat-dist').textContent=routeData.total_distance_km;document.getElementById('stat-time').textContent=routeData.total_duration_min;return;}
-  const chain=[groundZero,...stops];let km=0;
-  for(let i=0;i<chain.length-1;i++)km+=haversine(chain[i].lat,chain[i].lng,chain[i+1].lat,chain[i+1].lng);
-  document.getElementById('stat-dist').textContent=km.toFixed(1);
-  document.getElementById('stat-time').textContent=Math.round((km/25)*60);
-}
-
-function haversine(la1,lo1,la2,lo2){const R=6371,dLa=(la2-la1)*Math.PI/180,dLo=(lo2-lo1)*Math.PI/180,a=Math.sin(dLa/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
-
-function fitMap(){
-  const pts=[];
-  if(groundZero)pts.push([groundZero.lat,groundZero.lng]);
-  stops.forEach(s=>pts.push([s.lat,s.lng]));
-  if(pts.length)map.fitBounds(L.latLngBounds(pts),{padding:[60,60]});
-}
-
-function setupSearch(inputId,btnId,dropdownId,onSelect){
-  const input=document.getElementById(inputId),btn=document.getElementById(btnId),dd=document.getElementById(dropdownId);
-  input.addEventListener('input',()=>{clearTimeout(searchTimers[inputId]);const q=input.value.trim();if(q.length<3){dd.style.display='none';return;}searchTimers[inputId]=setTimeout(()=>searchNominatim(q,dd,onSelect,input),400);});
-  input.addEventListener('keydown',e=>{if(e.key==='Enter'){clearTimeout(searchTimers[inputId]);searchNominatim(input.value.trim(),dd,onSelect,input);}if(e.key==='Escape')dd.style.display='none';});
-  btn.addEventListener('click',()=>{const q=input.value.trim();if(q.length>=3){clearTimeout(searchTimers[inputId]);searchNominatim(q,dd,onSelect,input);}});
-}
-
-document.addEventListener('click',e=>{if(!e.target.closest('.search-wrapper'))document.querySelectorAll('.dropdown').forEach(d=>d.style.display='none');});
-
-async function searchNominatim(query,dd,onSelect,input){
-  if(!query)return;
-  const url=`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=ph`;
-  try{
-    const res=await fetch(url,{headers:{'Accept-Language':'en'}});
-    const results=await res.json();
-    if(!results.length){dd.innerHTML='<div class="dropdown-item"><span class="place-name">No results found</span></div>';dd.style.display='block';return;}
-    dd.innerHTML=results.map(r=>`<div class="dropdown-item" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${r.name||r.display_name.split(',')[0]}"><div class="place-name">${r.name||r.display_name.split(',')[0]}</div><div class="place-addr">${r.display_name}</div></div>`).join('');
-    dd.style.display='block';
-    dd.querySelectorAll('.dropdown-item').forEach(item=>item.addEventListener('click',()=>{onSelect(item.dataset.name,parseFloat(item.dataset.lat),parseFloat(item.dataset.lon));dd.style.display='none';input.value='';}));
-  }catch{showToast('Search failed','error');}
-}
-
-setupSearch('gz-input','gz-search-btn','gz-dropdown',(name,lat,lng)=>setGroundZero(name,lat,lng));
-setupSearch('stop-input','stop-search-btn','stop-dropdown',(name,lat,lng)=>addStop(name,lat,lng));
-document.getElementById('clear-all-btn').addEventListener('click',clearAll);
-
-document.getElementById('compute-btn').addEventListener('click',async()=>{
-  if(!groundZero){showToast('Set a ground zero first','error');return;}
-  const btn=document.getElementById('compute-btn');
-  btn.textContent='Computing…';btn.disabled=true;clearPolylines();
-  try{
-    const res=await fetch(`${BACKEND}/optimize`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ground_zero:{name:groundZero.name,lat:groundZero.lat,lng:groundZero.lng},stops:stops.map(s=>({name:s.name,lat:s.lat,lng:s.lng}))})});
-    routeData=await res.json();
-    if(routeData.error){showToast(routeData.error,'error');return;}
-    routeData.segments.forEach((seg)=>{routePolylines.push(L.polyline(seg.polyline,{color:ROUTE_COLOR,weight:5,opacity:.85}).addTo(map));});
-    stops=routeData.ordered_stops.map((s,i)=>{
-      const old=stops.find(o=>o.name===s.name);
-      if(old){old.marker.remove();old.marker=createStopMarker(s.lat,s.lng,i);old.marker.addTo(map).bindPopup(`<b>${i+1}. ${s.name}</b>`);}
-      return{name:s.name,lat:s.lat,lng:s.lng,marker:old?old.marker:createStopMarker(s.lat,s.lng,i)};
-    });
-    renderStops();updateStats();fitMap();
-    showToast('Route optimized! Starting live navigation…','success');
-    currentSegment=0;showNavStep();
-    document.getElementById('nav-panel').style.display='block';
-    stopGPS();   // stop any previous watch
-    startGPS();  // begin live tracking
-  }catch(e){showToast('Cannot reach backend. Is main.py running?','error');console.error(e);}
-  finally{btn.textContent='Compute Optimal Route →';updateComputeBtn();}
-});
-
-// ── GPS LIVE TRACKING ─────────────────────────
-function startGPS(){
-  if(!navigator.geolocation){showToast('Geolocation not supported on this device','error');return;}
-  isNavigating=true;
-  gpsWatchId=navigator.geolocation.watchPosition(onGPSUpdate,onGPSError,{
-    enableHighAccuracy:true,
-    maximumAge:3000,      // accept cached position up to 3s old
-    timeout:10000
+  routeData.segments.forEach(seg => {
+    // Each segment duration is in seconds — convert to ms for Date arithmetic
+    cursor += seg.duration * 1000;
+    stopETAs.push(new Date(cursor));
   });
 }
 
-function stopGPS(){
-  if(gpsWatchId!==null){navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null;}
-  if(riderMarker){riderMarker.remove();riderMarker=null;}
-  if(riderAccuracyCircle){riderAccuracyCircle.remove();riderAccuracyCircle=null;}
-  isNavigating=false;
+function formatETA(date) {
+  // toLocaleTimeString with hour/minute only, 12-hour clock
+  // e.g. "2:45 PM" — familiar format for Filipino riders
+  return date.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-function onGPSUpdate(pos){
-  const lat=pos.coords.latitude,lng=pos.coords.longitude,acc=pos.coords.accuracy;
+// Recalculate ETAs for remaining stops from current time.
+// Called on every arrival so delays are automatically reflected.
+function recalculateRemainingETAs() {
+  if (!routeData) return;
+  const now = new Date();
+  let cursor = now.getTime();
 
-  // Draw/update live rider dot
-  if(!riderMarker){
-    riderMarker=L.circleMarker([lat,lng],{radius:8,fillColor:'#22c55e',fillOpacity:1,color:'white',weight:2}).addTo(map);
-    riderAccuracyCircle=L.circle([lat,lng],{radius:acc,color:'#22c55e',fillColor:'#22c55e',fillOpacity:.1,weight:1}).addTo(map);
-  } else {
-    riderMarker.setLatLng([lat,lng]);
-    riderAccuracyCircle.setLatLng([lat,lng]).setRadius(acc);
+  // Only recalculate from currentSegment onward — past stops keep their original ETAs
+  for (let i = currentSegment; i < routeData.segments.length; i++) {
+    cursor += routeData.segments[i].duration * 1000;
+    stopETAs[i] = new Date(cursor);
+  }
+}
+
+// =============================================================================
+// MAP SETUP
+// L.map() creates the interactive map inside #map.
+// L.tileLayer() loads OpenStreetMap tile images (the visual road/satellite layer).
+// =============================================================================
+
+const map = L.map('map', { center: DEFAULT_CENTER, zoom: 14 });
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19
+}).addTo(map);
+
+// Try centering on rider's real location.
+// getCurrentPosition() fires once — not a continuous watch.
+// If denied, map stays at DEFAULT_CENTER silently.
+navigator.geolocation.getCurrentPosition(
+  pos => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
+  () => {} // ignore error — default center is fine
+);
+
+// =============================================================================
+// TOAST  —  Brief status messages at the bottom of the screen.
+// type: 'info' (default) | 'success' (green) | 'error' (red)
+// Auto-dismisses after 3.5 seconds.
+// =============================================================================
+
+let toastTimer;
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3500);
+}
+
+// =============================================================================
+// MARKER FACTORIES
+// L.divIcon() lets us use raw HTML/CSS as a map pin instead of a default image.
+// iconAnchor positions the "tip" of the icon on the exact coordinate.
+// =============================================================================
+
+// Ground zero: amber circle with ⊙ symbol. Anchor = center of circle.
+function createGZMarker(lat, lng) {
+  return L.marker([lat, lng], { icon: L.divIcon({
+    className: '',
+    html: `<div style="width:36px;height:36px;background:#f59e0b;border-radius:50%;
+           border:3px solid white;display:flex;align-items:center;justify-content:center;
+           box-shadow:0 2px 10px rgba(0,0,0,.5);font-size:16px;line-height:1">⊙</div>`,
+    iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -22]
+  })});
+}
+
+// Delivery stop: dark blue teardrop with stop number.
+// Rotated square with one rounded corner = teardrop pointing down.
+// Anchor = bottom tip so it points at the exact coordinate.
+function createStopMarker(lat, lng, index) {
+  return L.marker([lat, lng], { icon: L.divIcon({
+    className: '',
+    html: `<div style="width:32px;height:32px;background:#1A5276;
+           border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+           border:2px solid rgba(255,255,255,.35);
+           display:flex;align-items:center;justify-content:center;
+           box-shadow:0 2px 8px rgba(0,0,0,.45)">
+             <span style="transform:rotate(45deg);font-family:'Space Mono',monospace;
+             font-size:11px;font-weight:700;color:white;line-height:1">${index + 1}</span>
+           </div>`,
+    iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -36]
+  })});
+}
+
+// =============================================================================
+// GROUND ZERO
+//
+// Logic flow:
+//   User types in #gz-input
+//     → Nominatim returns results
+//       → User clicks a result
+//         → setGroundZero() is called
+//           → marker placed, confirmation card shown, search input hidden
+//
+// clearGroundZero() reverses all of that.
+// =============================================================================
+
+function setGroundZero(name, lat, lng) {
+  if (gzMarker) gzMarker.remove(); // remove previous GZ marker if changing
+
+  groundZero = { name, lat, lng }; // store in state
+
+  // Place amber marker on map
+  gzMarker = createGZMarker(lat, lng);
+  gzMarker.addTo(map).bindPopup(`<b>⊙ Start: ${name}</b>`);
+  map.setView([lat, lng], 15);
+
+  // UI: hide search input, show confirmation card
+  document.getElementById('gz-input').style.display      = 'none';
+  document.getElementById('gz-search-btn').style.display = 'none';
+  document.getElementById('gz-set-card').style.display   = 'flex';
+  document.getElementById('gz-name-display').textContent  = name;
+  document.getElementById('gz-coords-display').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+  updateComputeBtn();
+  showToast(`Ground zero: ${name}`, 'success');
+}
+
+function clearGroundZero() {
+  // POLISH FIX: only call clearPolylines() if there IS a route to clear.
+  // Previously this caused stopGPS() to be called twice (once here, once in fullReset).
+  if (routePolylines.length > 0) clearPolylines();
+
+  if (gzMarker) { gzMarker.remove(); gzMarker = null; }
+  groundZero = null;
+
+  // UI: show search input again, hide card
+  document.getElementById('gz-input').style.display      = '';
+  document.getElementById('gz-search-btn').style.display = '';
+  document.getElementById('gz-input').value              = '';
+  document.getElementById('gz-set-card').style.display   = 'none';
+
+  updateComputeBtn();
+}
+
+document.getElementById('gz-clear-btn').addEventListener('click', clearGroundZero);
+
+// =============================================================================
+// STOP MANAGEMENT
+//
+// addStop():
+//   Validates (max, duplicate) → creates marker → pushes to stops[] → re-renders list
+//
+// removeStop(index):
+//   Removes that stop → splices array → re-indexes remaining stops (new markers)
+//   Re-indexing is necessary because stop numbers must stay sequential: 1,2,3...
+//
+// clearAll():
+//   Removes all stops but keeps ground zero intact.
+//
+// clearPolylines():
+//   Removes drawn route lines. Called whenever route becomes stale.
+//   ALSO stops GPS since there's no route to navigate anymore.
+// =============================================================================
+
+function addStop(name, lat, lng) {
+  if (stops.length >= MAX_STOPS) {
+    showToast(`Maximum ${MAX_STOPS} stops allowed`, 'error'); return;
+  }
+  // Duplicate check: within ~11 metres (0.0001 degrees ≈ 11m)
+  if (stops.find(s => Math.abs(s.lat - lat) < 0.0001 && Math.abs(s.lng - lng) < 0.0001)) {
+    showToast('That location is already in your list', 'error'); return;
   }
 
-  // Keep map centered on rider during navigation
-  map.panTo([lat,lng],{animate:true,duration:0.5});
+  const i = stops.length;
+  const marker = createStopMarker(lat, lng, i);
+  marker.addTo(map).bindPopup(`<b>${i + 1}. ${name}</b>`);
+  stops.push({ name, lat, lng, marker });
 
-  // ── GEOFENCE CHECK ──
-  // Get the destination of the current segment
-  if(!routeData||currentSegment>=routeData.segments.length)return;
-  const dest=routeData.ordered_stops[currentSegment]; // current target stop
-  const distToStop=haversine(lat,lng,dest.lat,dest.lng)*1000; // convert km→m
+  renderStops(); updateStats(); fitMap(); updateComputeBtn();
+  showToast(`Stop ${i + 1} added: ${name}`, 'success');
+}
 
-  // Update distance display in nav HUD
-  document.getElementById('nav-dist').textContent=distToStop<1000
-    ?`${Math.round(distToStop)}m away`
-    :`${(distToStop/1000).toFixed(1)}km away`;
+function removeStop(index) {
+  stops[index].marker.remove();
+  stops.splice(index, 1); // remove from array
 
-  // Auto-advance if within geofence radius
-  if(distToStop<=GEOFENCE_RADIUS_M){
-    showToast(`📍 Arrived at ${dest.name}!`,'success');
+  // Re-number remaining stops. We rebuild each marker because the number inside changes.
+  stops.forEach((s, i) => {
+    s.marker.remove();
+    s.marker = createStopMarker(s.lat, s.lng, i);
+    s.marker.addTo(map).bindPopup(`<b>${i + 1}. ${s.name}</b>`);
+  });
+
+  clearPolylines(); // route is stale after any stop change
+  renderStops(); updateStats();
+  if (stops.length || groundZero) fitMap();
+  else map.setView(DEFAULT_CENTER, 14);
+  updateComputeBtn();
+}
+
+function clearAll() {
+  stops.forEach(s => s.marker.remove());
+  stops = [];
+  clearPolylines();
+  document.getElementById('nav-panel').style.display = 'none';
+  renderStops(); updateStats(); updateComputeBtn();
+}
+
+function clearPolylines() {
+  routePolylines.forEach(p => p.remove());
+  routePolylines = [];
+  routeData = null;
+  stopGPS(); // no route = no navigation = stop watching GPS
+}
+
+// Compute button enabled only when BOTH ground zero AND ≥1 stop are ready
+function updateComputeBtn() {
+  document.getElementById('compute-btn').disabled = !groundZero || stops.length < 1;
+}
+
+// =============================================================================
+// RENDER STOPS LIST
+// Rebuilds the HTML in #stops-list from the current stops[] array.
+// Called after every add / remove / reorder / arrival operation.
+//
+// When ETAs are available (after route compute), each card shows:
+//   - ETA badge: "3:42 PM" for upcoming stops
+//   - Active highlight: blue border for the stop currently being navigated
+//   - Done dimming: faded out for already-visited stops
+// =============================================================================
+
+function renderStops() {
+  const list = document.getElementById('stops-list');
+  if (!stops.length) {
+    list.innerHTML = `<div class="empty-state">
+      <div class="icon">📦</div>
+      <p>Set your ground zero first,<br/>then add delivery stops.</p>
+    </div>`;
+    return;
+  }
+  list.innerHTML = stops.map((s, i) => {
+    // Determine card state for visual feedback during navigation
+    const isDone   = isNavigating && i < currentSegment;  // already visited
+    const isActive = isNavigating && i === currentSegment; // currently heading here
+    const stateClass = isDone ? 'done-stop' : isActive ? 'active-stop' : '';
+
+    // ETA badge: only shown after route is computed (stopETAs is populated)
+    const etaHTML = stopETAs[i]
+      ? `<div class="stop-eta">${isDone ? '✓ ' : ''}${formatETA(stopETAs[i])}</div>`
+      : '';
+
+    // Hide remove button during active navigation (can't remove while en-route)
+    const removeHTML = isNavigating
+      ? '' // no remove button while navigating
+      : `<button class="stop-remove" onclick="removeStop(${i})" title="Remove stop">✕</button>`;
+
+    return `
+      <div class="stop-item ${stateClass}">
+        <div class="stop-badge">${i + 1}</div>
+        <div class="stop-info">
+          <div class="stop-name" title="${s.name}">${s.name}</div>
+          <div class="stop-coords">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>
+        </div>
+        ${etaHTML}
+        ${removeHTML}
+      </div>`;
+  }).join('');
+}
+
+// =============================================================================
+// STATS BAR
+// Before route compute: straight-line estimate via haversine (fast, rough).
+// After route compute: real road data from OSRM (accurate).
+//
+// Why straight-line first? OSRM takes a second to respond. Showing something
+// immediately gives the rider a sense of scale while they add stops.
+// =============================================================================
+
+function updateStats() {
+  document.getElementById('stat-stops').textContent = stops.length;
+
+  if (!stops.length || !groundZero) {
+    document.getElementById('stat-dist').textContent = '—';
+    document.getElementById('stat-time').textContent = '—';
+    return;
+  }
+
+  if (routeData) {
+    // Real data from Python backend
+    document.getElementById('stat-dist').textContent = routeData.total_distance_km;
+    document.getElementById('stat-time').textContent = routeData.total_duration_min;
+  } else {
+    // Rough straight-line estimate (no road following)
+    const chain = [groundZero, ...stops];
+    let km = 0;
+    for (let i = 0; i < chain.length - 1; i++) {
+      km += haversine(chain[i].lat, chain[i].lng, chain[i+1].lat, chain[i+1].lng);
+    }
+    document.getElementById('stat-dist').textContent = km.toFixed(1);
+    // 25 km/h is a reasonable average for Metro Manila with traffic
+    document.getElementById('stat-time').textContent = Math.round((km / 25) * 60);
+  }
+}
+
+// =============================================================================
+// HAVERSINE FORMULA
+// Calculates the great-circle (straight-line) distance between two coordinates.
+// Returns kilometres. Used in stats estimates and geofence distance checks.
+//
+// Why "haversine"? It accounts for the Earth being a sphere, not flat.
+// For Metro Manila distances (~1-20km) the error from ignoring Earth's curvature
+// would be negligible, but haversine is the standard correct approach.
+// =============================================================================
+
+function haversine(la1, lo1, la2, lo2) {
+  const R = 6371; // Earth radius in km
+  const dLa = (la2 - la1) * Math.PI / 180;
+  const dLo = (lo2 - lo1) * Math.PI / 180;
+  const a = Math.sin(dLa/2)**2
+          + Math.cos(la1*Math.PI/180) * Math.cos(la2*Math.PI/180) * Math.sin(dLo/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// =============================================================================
+// FIT MAP TO ALL MARKERS
+// Adjusts zoom and center so ground zero + all stops fit on screen.
+// padding:[60,60] adds buffer so markers aren't right at the edge.
+// =============================================================================
+
+function fitMap() {
+  const pts = [];
+  if (groundZero) pts.push([groundZero.lat, groundZero.lng]);
+  stops.forEach(s => pts.push([s.lat, s.lng]));
+  if (pts.length > 1)
+    map.fitBounds(L.latLngBounds(pts), { padding: [60, 60] });
+  else if (pts.length === 1)
+    map.setView(pts[0], 15);
+}
+
+// =============================================================================
+// NOMINATIM SEARCH  (OpenStreetMap's free geocoding API)
+//
+// What it does: converts a text query ("Ayala Malls Makati") into coordinates.
+// Rate limit: 1 request/second. Our 400ms debounce keeps us well under this.
+//
+// setupSearch() wires one text input to one dropdown with one callback.
+// Reused for BOTH the GZ search and the stop search.
+//
+// searchNominatim() makes the fetch call and renders results into the dropdown.
+// =============================================================================
+
+function setupSearch(inputId, btnId, dropdownId, onSelect) {
+  const input = document.getElementById(inputId);
+  const btn   = document.getElementById(btnId);
+  const dd    = document.getElementById(dropdownId);
+
+  // Debounce: clears the timer on each keystroke, only fires after 400ms of silence.
+  // Without this, typing "Ayala" fires 5 requests (A, Ay, Aya, Ayal, Ayala).
+  // With debounce: fires once, 400ms after the user finishes typing.
+  input.addEventListener('input', () => {
+    clearTimeout(searchTimers[inputId]);
+    const q = input.value.trim();
+    if (q.length < 3) { dd.style.display = 'none'; return; }
+    searchTimers[inputId] = setTimeout(() => searchNominatim(q, dd, onSelect, input), 400);
+  });
+
+  // Also allow Enter key to trigger search immediately
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      clearTimeout(searchTimers[inputId]);
+      searchNominatim(input.value.trim(), dd, onSelect, input);
+    }
+    if (e.key === 'Escape') dd.style.display = 'none';
+  });
+
+  btn.addEventListener('click', () => {
+    const q = input.value.trim();
+    if (q.length >= 3) {
+      clearTimeout(searchTimers[inputId]);
+      searchNominatim(q, dd, onSelect, input);
+    }
+  });
+}
+
+// Clicking outside any search wrapper closes all dropdowns
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-wrapper'))
+    document.querySelectorAll('.dropdown').forEach(d => d.style.display = 'none');
+});
+
+async function searchNominatim(query, dd, onSelect, input) {
+  if (!query) return;
+  // countrycodes=ph → bias to Philippines
+  // limit=5 → max 5 results
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}`
+            + `&format=json&limit=5&countrycodes=ph`;
+  try {
+    const res     = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    const results = await res.json();
+
+    if (!results.length) {
+      dd.innerHTML = '<div class="dropdown-item"><div class="place-name">No results found</div></div>';
+      dd.style.display = 'block';
+      return;
+    }
+
+    dd.innerHTML = results.map(r => {
+      const name = r.name || r.display_name.split(',')[0];
+      return `<div class="dropdown-item"
+                data-lat="${r.lat}" data-lon="${r.lon}" data-name="${name}">
+                <div class="place-name">${name}</div>
+                <div class="place-addr">${r.display_name}</div>
+              </div>`;
+    }).join('');
+    dd.style.display = 'block';
+
+    // Each result calls onSelect when clicked, then closes dropdown + clears input
+    dd.querySelectorAll('.dropdown-item').forEach(item => {
+      item.addEventListener('click', () => {
+        onSelect(item.dataset.name, parseFloat(item.dataset.lat), parseFloat(item.dataset.lon));
+        dd.style.display = 'none';
+        input.value = '';
+      });
+    });
+  } catch {
+    showToast('Search failed. Check your connection.', 'error');
+  }
+}
+
+// Wire both search boxes to their respective callbacks
+setupSearch('gz-input',   'gz-search-btn',   'gz-dropdown',   setGroundZero);
+setupSearch('stop-input', 'stop-search-btn', 'stop-dropdown', addStop);
+
+document.getElementById('clear-all-btn').addEventListener('click', clearAll);
+
+// =============================================================================
+// COMPUTE OPTIMAL ROUTE
+//
+// What happens when rider taps "Compute Optimal Route →":
+//
+//   1. Frontend sends { ground_zero, stops[] } to Python backend via HTTP POST
+//
+//   2. Python (main.py) does:
+//      a. Calls OSRM Table API → gets an N×N matrix of road travel times
+//         (this IS the graph — each cell is the edge weight between two nodes)
+//      b. Runs Nearest Neighbor TSP on that matrix, always starting from
+//         ground_zero (index 0) → produces an optimized stop order
+//      c. For each pair of consecutive stops in that order, calls OSRM Route API
+//         → gets the actual road polyline coordinates + turn-by-turn steps
+//
+//   3. Frontend receives the response and:
+//      a. Draws one dark blue polyline per segment on the map
+//      b. Re-renders the stop list in the new optimized order
+//      c. Updates stats with real road distances
+//      d. Starts GPS tracking
+//      e. Shows the nav HUD
+// =============================================================================
+
+document.getElementById('compute-btn').addEventListener('click', async () => {
+  if (!groundZero) { showToast('Set a ground zero first', 'error'); return; }
+
+  const btn = document.getElementById('compute-btn');
+  btn.textContent = 'Computing…';
+  btn.classList.add('loading'); // pulsing animation
+  btn.disabled = true;
+
+  clearPolylines(); // remove any old route before drawing new one
+
+  try {
+    const res = await fetch(`${BACKEND}/optimize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ground_zero: { name: groundZero.name, lat: groundZero.lat, lng: groundZero.lng },
+        stops: stops.map(s => ({ name: s.name, lat: s.lat, lng: s.lng }))
+      })
+    });
+
+    // POLISH FIX: check HTTP status before parsing JSON
+    if (!res.ok) {
+      showToast(`Server error: ${res.status}`, 'error'); return;
+    }
+
+    routeData = await res.json();
+    if (routeData.error) { showToast(routeData.error, 'error'); return; }
+
+    // Draw one dark blue polyline per road segment
+    routeData.segments.forEach(seg => {
+      routePolylines.push(
+        L.polyline(seg.polyline, { color: ROUTE_COLOR, weight: 5, opacity: 0.85 }).addTo(map)
+      );
+    });
+
+    // Rebuild stop markers in the NEW optimized order returned by Python.
+    // Python's TSP may have reordered stops — e.g. you added [A, B, C]
+    // but the optimal order is [C, A, B]. We update the map and list accordingly.
+    stops = routeData.ordered_stops.map((s, i) => {
+      const old = stops.find(o => o.name === s.name);
+      if (old) {
+        old.marker.remove();
+        old.marker = createStopMarker(s.lat, s.lng, i);
+        old.marker.addTo(map).bindPopup(`<b>${i + 1}. ${s.name}</b>`);
+      }
+      return { name: s.name, lat: s.lat, lng: s.lng, marker: old?.marker || createStopMarker(s.lat, s.lng, i) };
+    });
+
+    renderStops(); updateStats(); fitMap();
+    showToast('Route optimized! Starting navigation…', 'success');
+
+    // ── COMPUTE ETAs ──
+    // Now that we have segment durations from OSRM, calculate arrival times.
+    // fromTime = now, so ETAs are relative to the moment the route is confirmed.
+    computeETAs(new Date());
+
+    // Begin navigation from the first segment
+    currentSegment  = 0;
+    geofenceLocked  = false; // POLISH FIX: reset geofence lock for new route
+    showNavStep();
+    document.getElementById('nav-panel').style.display = 'block';
+
+    // Start GPS. stopGPS() first to clear any previous watch before starting new.
+    stopGPS();
+    startGPS();
+
+    // On mobile: close the sidebar sheet so map is fully visible
+    closeMobileSheet();
+    updateToggleLabel();
+
+  } catch (e) {
+    // Network error — most likely backend isn't running
+    showToast('Cannot reach backend. Is main.py running on port 5000?', 'error');
+    console.error('Compute error:', e);
+  } finally {
+    btn.textContent = 'Compute Optimal Route →';
+    btn.classList.remove('loading');
+    updateComputeBtn();
+  }
+});
+
+// =============================================================================
+// GPS LIVE TRACKING
+//
+// startGPS(): starts watchPosition() — fires onGPSUpdate() every time
+//   the device's GPS reports a new position. On phones this is every ~1-5s.
+//
+// stopGPS(): cancels the watch (clearWatch) and removes the rider dot from map.
+//
+// onGPSUpdate(): called on every GPS ping. Does three things:
+//   1. Moves the green dot to the new position
+//   2. Pans the map to follow the rider
+//   3. Checks if rider is within GEOFENCE_M metres of the current stop
+//      → if yes: auto-advance to next segment
+//
+// Geofence cooldown (POLISH FIX):
+//   Without cooldown, if GPS fluctuates around the 80m boundary, the geofence
+//   fires multiple times in quick succession. The 5s cooldown (geofenceLocked)
+//   prevents this by ignoring geofence triggers for 5 seconds after one fires.
+// =============================================================================
+
+function startGPS() {
+  if (!navigator.geolocation) {
+    showToast('Geolocation not supported on this device', 'error'); return;
+  }
+  isNavigating   = true;
+  geofenceLocked = false;
+  gpsWatchId = navigator.geolocation.watchPosition(onGPSUpdate, onGPSError, {
+    enableHighAccuracy: true, // use actual GPS chip (more accurate, more battery)
+    maximumAge:  3000,        // accept a cached reading up to 3 seconds old
+    timeout:    10000         // call onGPSError if no fix within 10 seconds
+  });
+}
+
+function stopGPS() {
+  if (gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+  }
+  if (riderMarker)   { riderMarker.remove();    riderMarker    = null; }
+  if (riderAccCircle){ riderAccCircle.remove();  riderAccCircle = null; }
+  isNavigating = false;
+  updateToggleLabel();
+}
+
+function onGPSUpdate(pos) {
+  const { latitude: lat, longitude: lng, accuracy: acc } = pos.coords;
+
+  // ── Update rider dot on map ──
+  if (!riderMarker) {
+    // First GPS fix: create the dot and accuracy ring
+    riderMarker = L.circleMarker([lat, lng], {
+      radius: 8, fillColor: '#22c55e', fillOpacity: 1, color: 'white', weight: 2
+    }).addTo(map);
+    riderAccCircle = L.circle([lat, lng], {
+      radius: acc, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.1, weight: 1
+    }).addTo(map);
+  } else {
+    // Subsequent updates: move existing markers (cheaper than recreating)
+    riderMarker.setLatLng([lat, lng]);
+    riderAccCircle.setLatLng([lat, lng]).setRadius(acc);
+  }
+
+  // ── Pan map to follow rider ──
+  map.panTo([lat, lng], { animate: true, duration: 0.5 });
+
+  // ── Geofence check ──
+  if (!routeData || currentSegment >= routeData.segments.length) return;
+  if (geofenceLocked) return; // POLISH FIX: skip if cooldown is active
+
+  const dest = routeData.ordered_stops[currentSegment]; // where we're going
+  const distM = haversine(lat, lng, dest.lat, dest.lng) * 1000; // km → m
+
+  // Update live distance display in nav HUD
+  document.getElementById('nav-dist').textContent =
+    distM < 1000 ? `${Math.round(distM)}m away` : `${(distM/1000).toFixed(1)}km away`;
+
+  // Auto-advance if within geofence
+  if (distM <= GEOFENCE_M) {
+    // POLISH FIX: lock geofence for 5s to prevent rapid repeat triggers
+    geofenceLocked = true;
+    setTimeout(() => { geofenceLocked = false; }, GEOFENCE_COOLDOWN_MS);
+
+    showToast(`📍 Arrived at ${dest.name}!`, 'success');
     advanceSegment();
   }
 }
 
-function onGPSError(err){
-  showToast('GPS signal lost. Use button to advance manually.','error');
+function onGPSError(err) {
+  // Common causes: user denied permission, device indoors, timeout
+  showToast('GPS unavailable. Use "✓ Arrived" to advance manually.', 'error');
 }
 
-function advanceSegment(){
-  if(!routeData)return;
-  if(currentSegment>=routeData.segments.length-1){
+// =============================================================================
+// ADVANCE TO NEXT SEGMENT
+// Called by: geofence auto-trigger OR manual "✓ Arrived" button tap.
+//
+// If on the last segment: triggers the completion flow.
+// Otherwise: increments currentSegment and updates the nav HUD.
+// =============================================================================
+
+function advanceSegment() {
+  if (!routeData) return;
+
+  if (currentSegment >= routeData.segments.length - 1) {
+    // ── ALL DELIVERIES COMPLETE ──
     stopGPS();
-    document.getElementById('nav-panel').style.display='none';
-    showToast('🏁 All deliveries complete!','success');
-    return;
+    document.getElementById('nav-panel').style.display = 'none';
+    showCompletionOverlay(); // show summary card with "Start New Job" button
+  } else {
+    currentSegment++;
+    geofenceLocked = false; // POLISH FIX: reset lock when moving to new segment
+
+    // ── RECALCULATE REMAINING ETAs ──
+    // Rider just arrived — use current real time as the new baseline.
+    // This corrects for any delay: if they were 10 min late to stop 1,
+    // stops 2, 3... automatically shift forward from NOW, not the original estimate.
+    recalculateRemainingETAs();
+
+    renderStops(); // re-render to update active/done badges and ETA highlights
+    showNavStep();
   }
-  currentSegment++;
-  showNavStep();
 }
 
-// ── NAV HUD ───────────────────────────────────
-function showNavStep(){
-  if(!routeData)return;
-  const segs=routeData.segments,seg=segs[currentSegment];
-  const isLast=currentSegment===segs.length-1;
+// =============================================================================
+// NAV HUD  —  Updates the floating navigation panel for the current segment.
+//
+// Highlights the active polyline (full opacity) and dims all others.
+// Shows the first meaningful turn instruction from OSRM's step data.
+// Zooms the map to fit the current segment.
+// =============================================================================
 
-  document.getElementById('nav-header').textContent=currentSegment===0?'🚀 Starting Route':`Segment ${currentSegment+1} of ${segs.length}`;
-  document.getElementById('nav-stop-label').textContent=`${seg.from} → ${seg.to}`;
+function showNavStep() {
+  if (!routeData) return;
+  const segs   = routeData.segments;
+  const seg    = segs[currentSegment];
+  const isLast = currentSegment === segs.length - 1;
 
-  // Show first meaningful turn instruction
-  const step=seg.steps.find(s=>s.road)||seg.steps[0];
-  document.getElementById('nav-instruction').textContent=step&&step.road
-    ?`${step.instruction} on ${step.road}`
-    :'Proceed to destination';
+  // Header line
+  document.getElementById('nav-header').textContent =
+    currentSegment === 0 ? '🚀 Starting Route' : `Segment ${currentSegment + 1} of ${segs.length}`;
 
-  document.getElementById('nav-dist').textContent='Locating…';
-  document.getElementById('nav-prev').disabled=currentSegment===0;
-  document.getElementById('nav-next').textContent=isLast?'🏁 Done':'✓ Arrived';
+  // From → To
+  document.getElementById('nav-stop-label').textContent = `${seg.from} → ${seg.to}`;
 
-  // Highlight active segment — others dimmed
-  routePolylines.forEach((p,i)=>p.setStyle({
-    opacity:i===currentSegment?1:.2,
-    weight:i===currentSegment?7:4
+  // ETA for the current destination stop
+  // stopETAs[currentSegment] = the Date we expect to arrive at this stop
+  document.getElementById('nav-eta').textContent =
+    stopETAs[currentSegment] ? `ETA: ${formatETA(stopETAs[currentSegment])}` : '';
+
+  // Find first step that has a road name (skip unnamed connector roads)
+  const step = seg.steps.find(s => s.road && s.road.trim()) || seg.steps[0];
+  document.getElementById('nav-instruction').textContent =
+    step?.road ? `${step.instruction} on ${step.road}` : 'Proceed to destination';
+
+  document.getElementById('nav-dist').textContent = 'Locating…';
+  document.getElementById('nav-prev').disabled    = currentSegment === 0;
+  document.getElementById('nav-next').textContent = isLast ? '🏁 Done' : '✓ Arrived';
+
+  // Highlight active segment, dim others
+  routePolylines.forEach((p, i) => p.setStyle({
+    opacity: i === currentSegment ? 1   : 0.2,
+    weight:  i === currentSegment ? 7   : 4
   }));
-  map.fitBounds(routePolylines[currentSegment].getBounds(),{padding:[80,80]});
+
+  // Zoom to current segment
+  map.fitBounds(routePolylines[currentSegment].getBounds(), { padding: [80, 80] });
 }
 
-document.getElementById('nav-next').addEventListener('click',()=>{
-  advanceSegment(); // manual fallback button
+document.getElementById('nav-next').addEventListener('click', advanceSegment);
+document.getElementById('nav-prev').addEventListener('click', () => {
+  if (currentSegment > 0) {
+    currentSegment--;
+    geofenceLocked = false;
+    showNavStep();
+  }
 });
-document.getElementById('nav-prev').addEventListener('click',()=>{
-  if(currentSegment>0){currentSegment--;showNavStep();}
+
+// =============================================================================
+// COMPLETION OVERLAY + FULL RESET
+//
+// showCompletionOverlay():
+//   Fills in the summary stats (stops, km, min) from routeData.
+//   Makes the overlay visible with a pop-in animation.
+//
+// fullReset():
+//   Wipes ALL state and UI back to the initial empty condition.
+//   Called when rider taps "Start New Job".
+//
+//   Order matters:
+//   1. Hide overlay first (visual)
+//   2. Remove markers (map cleanup)
+//   3. Clear GZ state + UI
+//   4. Clear stops array
+//   5. Remove polylines + stop GPS (clearPolylines does both)
+//   6. Reset counters
+//   7. Re-render empty UI
+// =============================================================================
+
+function showCompletionOverlay() {
+  document.getElementById('done-stops').textContent = routeData.ordered_stops.length;
+  document.getElementById('done-dist').textContent  = routeData.total_distance_km;
+  document.getElementById('done-time').textContent  = routeData.total_duration_min;
+  document.getElementById('reset-overlay').classList.add('show');
+}
+
+function fullReset() {
+  // 1. Hide overlay
+  document.getElementById('reset-overlay').classList.remove('show');
+
+  // 2. Remove all stop markers from map
+  stops.forEach(s => s.marker.remove());
+  stops = [];
+
+  // 3. Clear ground zero (handles its own marker removal + UI swap)
+  //    POLISH FIX: clearPolylines is NOT called inside clearGroundZero anymore
+  //    when called from fullReset — we call it explicitly below instead.
+  if (gzMarker) { gzMarker.remove(); gzMarker = null; }
+  groundZero = null;
+  document.getElementById('gz-input').style.display      = '';
+  document.getElementById('gz-search-btn').style.display = '';
+  document.getElementById('gz-input').value              = '';
+  document.getElementById('gz-set-card').style.display   = 'none';
+
+  // 4. Remove polylines + stop GPS (one clean call)
+  routePolylines.forEach(p => p.remove());
+  routePolylines = [];
+  routeData = null;
+  stopGPS();
+
+  // 5. Reset navigation state
+  currentSegment = 0;
+  geofenceLocked = false;
+  stopETAs       = []; // clear all computed ETAs
+  document.getElementById('nav-panel').style.display = 'none';
+
+  // 6. Re-render empty UI
+  renderStops();
+  updateStats();
+  updateComputeBtn();
+  map.setView(DEFAULT_CENTER, 14);
+
+  updateToggleLabel();
+  showToast('Ready for a new job! 🛵', 'success');
+}
+
+document.getElementById('new-job-btn').addEventListener('click', fullReset);
+
+// =============================================================================
+// MOBILE BOTTOM SHEET TOGGLE
+//
+// On mobile the sidebar is hidden below the screen (transform:translateY(100%)).
+// Tapping #sheet-toggle adds/removes .open on #sidebar which CSS transitions
+// into view (transform:translateY(0)).
+//
+// The toggle button label updates to reflect current app state:
+//   "Add Stops"   → before route is computed
+//   "Route Active" → while navigating
+//   "Close"        → while sheet is open
+// =============================================================================
+
+const sheetToggle = document.getElementById('sheet-toggle');
+const sidebar     = document.getElementById('sidebar');
+
+function isMobile() {
+  // Check if toggle button is visible (only shown on mobile via CSS)
+  return window.getComputedStyle(sheetToggle).display !== 'none';
+}
+
+function openMobileSheet() {
+  sidebar.classList.add('open');
+  document.getElementById('toggle-icon').textContent  = '✕';
+  document.getElementById('toggle-label').textContent = 'Close';
+}
+
+function closeMobileSheet() {
+  sidebar.classList.remove('open');
+  updateToggleLabel();
+}
+
+function updateToggleLabel() {
+  if (!isMobile() || sidebar.classList.contains('open')) return;
+  document.getElementById('toggle-icon').textContent  = '☰';
+  document.getElementById('toggle-label').textContent = isNavigating ? 'Route Active' : 'Add Stops';
+}
+
+sheetToggle.addEventListener('click', () => {
+  if (sidebar.classList.contains('open')) closeMobileSheet();
+  else openMobileSheet();
 });
 </script>
 </body>
